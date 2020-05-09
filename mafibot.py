@@ -2,6 +2,7 @@ import discord
 from random import shuffle
 from time import sleep
 
+# TODO: add config/persistent file
 token = "your token here"
 gamestate = None
 startchannel = None
@@ -9,6 +10,8 @@ startchannel = None
 mafiachannel = None
 copchannel = None
 generalchannel = None
+
+nominations = {}
 
 maf = None
 
@@ -100,6 +103,7 @@ async def on_message(message):
         return
 
     if message.content.startswith('!start'):
+        # make sure we have all the channels
         if not mafiachannel or not copchannel or not generalchannel:
             await message.channel.send('Not all channels set!')
             if not mafiachannel:
@@ -108,6 +112,7 @@ async def on_message(message):
                 await message.channel.send('Please set the cop channel with the command !setcop')
             if not generalchannel:
                 await message.channel.send('Please set the general channel with the command !setgeneral')
+        # start the game
         if not gamestate:
             startchannel = message.channel
             await startchannel.send('@Notifications:\n'
@@ -174,10 +179,69 @@ async def on_message(message):
 
             gamestate = "playing"
             print(gamestate)
+            gameDone = False
+            while not gameDone:
+                gamestate = "playing-night"
+                gamestate = "playing-night-mafia"
+                # mafia
+                #  - discussion
+                #  - voting
+                # cops
+                #  - voting
+                gamestate = "playing-day"
+                gamestate = "playing-day-discussion"
+                gamestate = "playing-day-discussion-give chat perms"
+                for user in maf.players:
+                    await generalchannel.set_permissions(user, read_messages=True,
+                                                         send_messages=True)
+                sleep(300)
+                gamestate = "playing-day-discussion-take chat perms"
+                for user in maf.players:
+                    await generalchannel.set_permissions(user, read_messages=True,
+                                                         send_messages=False)
+                gamestate = "playing-day-discussion-nominations"
+                for user in maf.players:
+                    await generalchannel.set_permissions(user, read_messages=True,
+                                                         send_messages=True)
+                    await generalchannel.send('@' + user.display_name + ', who do you nominate? '
+                                                                        '(nominate with !nom @{person})')
+                gamestate = "playing-day-discussion-voting"
+
+    # nominations
+    if message.channel == generalchannel and message.content.startswith('!nom') and \
+            gamestate == "playing-day-discussion-nominations":
+        if len(message.mentions) != 1:
+            await generalchannel.send('You can only nominate one person. Please try again.')
+        else:
+            nominations[str(message.mentions[0].name)] = 0
+    # voting
+    if message.content.startswith('!v'):
+        if message.channel == generalchannel and gamestate == "playing-day-discussion-voting":
+            if len(message.mentions) != 1:
+                await message.channel.send('You can only vote for one person. Please try again.')
+            else:
+                nominations[str(message.mentions[0].name)] += 1
+        elif message.channel == mafiachannel and gamestate == "playing-night-mafia-voting":
+            if len(message.mentions) != 1:
+                await message.channel.send('You can only vote for one person. Please try again.')
+            else:
+                maf.death(message.mentions[0])
+        elif message.channel == copchannel and gamestate == "playing-night-cop-voting":
+            if len(message.mentions) != 1:
+                await message.channel.send('You can only vote for one person. Please try again.')
+            else:
+                checkRole = None
+                for role in maf.playerRoles:
+                    for player in role:
+                        if player == message.mentions[0]:
+                            checkRole = role
+                await message.channel.send(message.mentions[0].name + ' is a ' + checkRole)
+
     if message.content.startswith('!setmafia'):
         if message.channel == copchannel or message.channel == generalchannel:
             await message.channel.send("You can't set one channel to perform more than one function. "
                                        "Please select a different channel.")
+            pass
         mafiachannel = message.channel
         if mafiachannel:
             await message.channel.send('overwriting mafia channel')
@@ -187,6 +251,7 @@ async def on_message(message):
         if message.channel == mafiachannel or message.channel == generalchannel:
             await message.channel.send("You can't set one channel to perform more than one function. "
                                        "Please select a different channel.")
+            pass
         copchannel = message.channel
         if copchannel:
             await message.channel.send('overwriting cop channel')
@@ -196,6 +261,7 @@ async def on_message(message):
         if message.channel == mafiachannel or message.channel == copchannel:
             await message.channel.send("You can't set one channel to perform more than one function. "
                                        "Please select a different channel.")
+            pass
         generalchannel = message.channel
         if generalchannel:
             await message.channel.send('overwriting general channel')
