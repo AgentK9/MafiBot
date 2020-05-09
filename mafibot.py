@@ -4,6 +4,7 @@ from time import sleep
 
 token = "your token here"
 
+
 class Mafia:
     def __init__(self, playe: list):
         self.players = playe
@@ -22,10 +23,43 @@ class Mafia:
         shuffle(roles)
 
         for player in self.players:
-            self.playerRoles[str(player.name)] = roles[0]
+            try:
+                self.playerRoles[roles[0]].append(player)
+            except KeyError:
+                self.playerRoles[roles[0]] = []
+                self.playerRoles[roles[0]].append(player)
             roles.pop(0)
 
         return self.playerRoles
+
+    def death(self, playerID):
+        gameDone = False
+        msg = ""  # placeholder
+        dead = None
+        for player in self.players:
+            if player.id == playerID:
+                dead = player
+        self.players.remove(dead)
+        deadRole = None
+        for role in self.playerRoles:
+            for player in role:
+                if player == dead:
+                    deadRole = role
+        self.playerRoles[deadRole].remove(dead)
+
+        # TODO: add flavor text
+
+        # wincons
+        if len(self.playerRoles['Mafia']) >= (len(self.playerRoles['Villager']) + len(self.playerRoles['Cop'])):
+            # Mafia wins
+            # TODO: add flavor messages
+            gameDone = True
+        elif len(self.playerRoles['Mafia']) <= 0:
+            # Villagers win
+            # TODO: add flavor messages
+            gameDone = True
+
+        return dead, msg, gameDone
 
     def day(self):
         # announce death by mafia
@@ -43,7 +77,9 @@ class Mafia:
         # wake cop up
         # nominate to see who is who
 
+
 client = discord.Client()
+
 
 @client.event
 async def on_ready():
@@ -84,30 +120,46 @@ async def on_message(message):
                     signupMessage = message
                 break
 
+            # get all users who reacted
             for reaction in signupMessage.reactions:
                 if reaction.emoji == '👍':
                     maf = Mafia(await reaction.users().flatten())
 
+            # DM and set roles for mafia, cops, villagers
             userRoles = maf.assignroles()
-            for user in userRoles.keys():
-                role = userRoles[user]
-                if not user.dm_channel:
-                    await user.create_dm()
+            for role in userRoles.keys():
+                users = userRoles[role]
+                for user in users:
+                    if not user.dm_channel:
+                        await user.create_dm()
 
-                user.dm_channel.send(role)
-                if role == "Mafia":
-                    await mafiachannel.set_permissions(user, read_messages=True,
-                                                             send_messages=True)
-                elif role == "Cop":
-                    await copchannel.set_permissions(user, read_messages=True,
-                                                           send_messages=True)
-                else:
-                    await mafiachannel.set_permissions(user, read_messages=False,
-                                                       send_messages=False)
-                    await copchannel.set_permissions(user, read_messages=False,
-                                                     send_messages=False)
+                    user.dm_channel.send(role)
+                    if role == "Mafia":
+                        await mafiachannel.set_permissions(user, read_messages=True,
+                                                                 send_messages=True)
+                    elif role == "Cop":
+                        await copchannel.set_permissions(user, read_messages=True,
+                                                               send_messages=True)
+                    else:
+                        await mafiachannel.set_permissions(user, read_messages=False,
+                                                           send_messages=False)
+                        await copchannel.set_permissions(user, read_messages=False,
+                                                         send_messages=False)
 
-                await generalchannel.set_permissions(user, send_messages=True)
+                    await generalchannel.set_permissions(user, send_messages=True)
+
+            # @ all the mafia and tell them that they're mafia
+            for user in userRoles["Mafia"]:
+                await mafiachannel.send('@' + user.display_name)
+            await mafiachannel.send('You are mafia')
+
+            # @ all the cops and tell them that they're cops
+            for user in userRoles["Cop"]:
+                await copchannel.send('@' + user.display_name)
+            await copchannel.send('You are cops')
+
+
+
 
 
 
