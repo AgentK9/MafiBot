@@ -3,6 +3,14 @@ from random import shuffle
 from time import sleep
 
 token = "your token here"
+gamestate = None
+startchannel = None
+
+mafiachannel = None
+copchannel = None
+generalchannel = None
+
+maf = None
 
 
 class Mafia:
@@ -87,18 +95,19 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    gamestate = None
-    startchannel = None
-
-    mafiachannel = None
-    copchannel = None
-    generalchannel = None
-
-    maf = None
+    global gamestate, startchannel, mafiachannel, copchannel, generalchannel
     if message.author == client.user:
         return
 
-    if message.content.startswith('!start') and message.channel.category_id != "Mafia":
+    if message.content.startswith('!start'):
+        if not mafiachannel or not copchannel or not generalchannel:
+            await message.channel.send('Not all channels set!')
+            if not mafiachannel:
+                await message.channel.send('Please set the mafia channel with the command !setmafia')
+            if not copchannel:
+                await message.channel.send('Please set the cop channel with the command !setcop')
+            if not generalchannel:
+                await message.channel.send('Please set the general channel with the command !setgeneral')
         if not gamestate:
             startchannel = message.channel
             await startchannel.send('@Notifications:\n'
@@ -106,12 +115,16 @@ async def on_message(message):
                                        'Everyone wishing to participate, '
                                        'please react with a :thumbsup: to this message.')
             gamestate = "waitingForPlayers"
+            print(gamestate)
         elif gamestate == "waitingForPlayers":
             await startchannel.send('Closing sign-ups.')
             sleep(5)
             await startchannel.send('Sign-ups closed. Sending out roles via DMs.')
             counter = 0
+            gamestate = "setting up"
+            print(gamestate)
 
+            # get signupMessage
             signupMessage = None
             async for message in startchannel.history(limit=50):
                 if message.author == client.user:
@@ -120,7 +133,7 @@ async def on_message(message):
                     signupMessage = message
                 break
 
-            # get all users who reacted
+            # get all users who reacted to the signup message
             for reaction in signupMessage.reactions:
                 if reaction.emoji == '👍':
                     maf = Mafia(await reaction.users().flatten())
@@ -136,17 +149,18 @@ async def on_message(message):
                     user.dm_channel.send(role)
                     if role == "Mafia":
                         await mafiachannel.set_permissions(user, read_messages=True,
-                                                                 send_messages=True)
+                                                                 send_messages=False)
                     elif role == "Cop":
                         await copchannel.set_permissions(user, read_messages=True,
-                                                               send_messages=True)
+                                                               send_messages=False)
                     else:
                         await mafiachannel.set_permissions(user, read_messages=False,
-                                                           send_messages=False)
+                                                                 send_messages=False)
                         await copchannel.set_permissions(user, read_messages=False,
-                                                         send_messages=False)
+                                                               send_messages=False)
 
-                    await generalchannel.set_permissions(user, send_messages=True)
+                    await generalchannel.set_permissions(user, read_messages=True,
+                                                               send_messages=False)
 
             # @ all the mafia and tell them that they're mafia
             for user in userRoles["Mafia"]:
@@ -158,11 +172,34 @@ async def on_message(message):
                 await copchannel.send('@' + user.display_name)
             await copchannel.send('You are cops')
 
-
-
-
-
-
-
+            gamestate = "playing"
+            print(gamestate)
+    if message.content.startswith('!setmafia'):
+        if message.channel == copchannel or message.channel == generalchannel:
+            await message.channel.send("You can't set one channel to perform more than one function. "
+                                       "Please select a different channel.")
+        mafiachannel = message.channel
+        if mafiachannel:
+            await message.channel.send('overwriting mafia channel')
+        else:
+            await message.channel.send('mafia channel set')
+    if message.content.startswith('!setcop'):
+        if message.channel == mafiachannel or message.channel == generalchannel:
+            await message.channel.send("You can't set one channel to perform more than one function. "
+                                       "Please select a different channel.")
+        copchannel = message.channel
+        if copchannel:
+            await message.channel.send('overwriting cop channel')
+        else:
+            await message.channel.send('cop channel set')
+    if message.content.startswith('!setgeneral'):
+        if message.channel == mafiachannel or message.channel == copchannel:
+            await message.channel.send("You can't set one channel to perform more than one function. "
+                                       "Please select a different channel.")
+        generalchannel = message.channel
+        if generalchannel:
+            await message.channel.send('overwriting general channel')
+        else:
+            await message.channel.send('general channel set')
 
 client.run(token)
