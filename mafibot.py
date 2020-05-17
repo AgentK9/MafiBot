@@ -18,6 +18,7 @@ class Mafia:
         self.gamestate = "initialized"
         self.nominations = {}
         self.responded = 0
+        self.gameDone = False
 
     async def increment_gamestate(self):
         if self.gamestate == "initialized":
@@ -85,8 +86,7 @@ class Mafia:
             await self.play()
 
     async def play(self):
-        gameDone = False
-        while not gameDone:
+        while not self.gameDone:
             # DAY
             # give chat perms
             for user in maf.players:
@@ -114,7 +114,6 @@ class Mafia:
                         await generalchannel.send('Assuming that no nomination is an abstention, @' +
                                                   user.display_name + '.')
                 await generalchannel.set_permissions(user, read_messages=True, send_messages=False)
-
             self.responded = 0
             # vote
             self.gamestate = "day voting"
@@ -133,11 +132,34 @@ class Mafia:
                         await generalchannel.send('Assuming that no vote is an abstention, @' +
                                                   user.display_name + '.')
                 await generalchannel.set_permissions(user, read_messages=True, send_messages=False)
+            self.responded = 0
             # get voting results
             dead_user = max(self.nominations, key=lambda key: self.nominations[key])
-            self.death(dead_user)
-
-
+            # act on them
+            await self.death(dead_user)
+            self.nominations = {}
+            # NIGHT
+            # Mafia
+            self.gamestate = "mafia voting"
+            for user in self.playerRoles["Mafia"]:
+                await mafiachannel.set_permissions(user, read_messages=True, send_messages=False)
+            await mafiachannel.send('Mafia, you have 3 minutes to discuss and kill a player. '
+                                    'The first person nominated with !v @{player} will be killed.')
+            await sleep(120)
+            await mafiachannel.send('1 minute warning!')
+            await sleep(60)
+            # TODO: add smartness to go on to the next phase when nominated
+            for user in self.playerRoles["Mafia"]:
+                await mafiachannel.set_permissions(user, read_messages=True, send_messages=False)
+            # Cop
+            self.gamestate = "cop voting"
+            for user in self.playerRoles["Cop"]:
+                await copchannel.set_permissions(user, read_messages=True, send_messages=True)
+            await copchannel.send('Cop, you have 1 minute to nominate a player to see who they are.')
+            await sleep(45)
+            await copchannel.send('15 second warning')
+            await sleep(15)
+            # TODO: add smartness to go on to the next phase when nominated
 
     def __getroles(self):
         numMaf = round(len(self.players)/4)
@@ -161,9 +183,7 @@ class Mafia:
 
         return self.playerRoles
 
-    def death(self, player):
-        gameDone = False
-        msg = ""  # placeholder
+    async def death(self, player):
         dead = None
         for player in self.players:
             if player == player:
@@ -176,35 +196,21 @@ class Mafia:
                     deadRole = role
         self.playerRoles[deadRole].remove(dead)
 
+        await generalchannel.send('@' + player.nick + ' died.')
+
         # TODO: add flavor text
 
         # wincons
         if len(self.playerRoles['Mafia']) >= (len(self.playerRoles['Villager']) + len(self.playerRoles['Cop'])):
             # Mafia wins
+            await generalchannel.send('The mafia wins.')
             # TODO: add flavor messages
-            gameDone = True
+            self.gameDone = True
         elif len(self.playerRoles['Mafia']) <= 0:
             # Villagers win
+            await generalchannel.send('The villagers win!')
             # TODO: add flavor messages
-            gameDone = True
-
-        return dead, msg, gameDone
-
-    def day(self):
-        # announce death by mafia
-        # discussion (5 mins)
-        sleep(300)
-        # nominations
-        # voting
-        # announce death by vote
-
-    def night(self):
-        # wake mafia up
-        # discussion (2 mins)
-        sleep(120)
-        # voting
-        # wake cop up
-        # nominate to see who is who
+            self.gameDone = True
 
 
 client = discord.Client()
@@ -214,6 +220,7 @@ maf = Mafia()
 @client.event
 async def on_ready():
     print('We have logged in as {0.user}'.format(client))
+
 
 @client.event
 async def on_message(message):
@@ -254,14 +261,15 @@ async def on_message(message):
             else:
                 try:
                     maf.nominations[str(message.mentions[0].name)] += 1
+                    maf.responded += 1
                 except KeyError:
                     await message.channel.send('You cannot vote for someone who was not nominated. Please try again.')
-        elif message.channel == mafiachannel and gamestate == "playing-night-mafia-voting":
+        elif message.channel == mafiachannel and gamestate == "mafia voting":
             if len(message.mentions) != 1:
                 await message.channel.send('You can only vote for one person. Please try again.')
             else:
-                maf.death(message.mentions[0])
-        elif message.channel == copchannel and gamestate == "playing-night-cop-voting":
+                await maf.death(message.mentions[0])
+        elif message.channel == copchannel and gamestate == "cop voting":
             if len(message.mentions) != 1:
                 await message.channel.send('You can only vote for one person. Please try again.')
             else:
@@ -270,7 +278,8 @@ async def on_message(message):
                     for player in role:
                         if player == message.mentions[0]:
                             checkRole = role
-                await message.channel.send(message.mentions[0].name + ' is a ' + checkRole)
+                await message.channel.send(message.mentions[0].name + ' is a ' +
+                                           checkRole if checkRole else "dead person")
 
     if message.content.startswith('!setmafia'):
         if message.channel == copchannel or message.channel == generalchannel:
